@@ -86,3 +86,41 @@ class NDUParser:
 
         return products
 
+
+    
+    def parse_bytes(self, content: bytes) -> list[NDUProduct]:
+        """Прочита NDU съдържание директно от паметта."""
+
+        text = content.decode("cp1251")
+        products = []
+        seen_codes = set()
+
+        for line_number, line in enumerate(
+            text.splitlines(), start=1
+        ):
+            line = line.strip()
+
+            if not line or line == "EOF":
+                continue
+
+            try:
+                product = self.parse_line(line)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Грешка на ред {line_number}: {exc}"
+                ) from exc
+
+            if not product.nhif_code:
+                raise ValueError(
+                    f"Липсва НЗОК код на ред {line_number}"
+                )
+
+            if product.nhif_code in seen_codes:
+                raise ValueError(
+                    f"Дублиран НЗОК код: {product.nhif_code}"
+                )
+
+            seen_codes.add(product.nhif_code)
+            products.append(product)
+
+        return products

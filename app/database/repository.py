@@ -232,3 +232,29 @@ class ProductRepository:
             ).fetchone()
 
         return dict(row) if row else None
+    
+    
+    
+    def get_update_history(self) -> list[dict]:
+        """Връща актуализациите по дата, от най-новата."""
+
+        with get_connection() as connection:
+            connection.row_factory = sqlite3.Row
+
+            rows = connection.execute(
+                """
+                SELECT
+                    b.id,
+                    b.effective_date,
+                    b.filename,
+                    COUNT(p.id) AS product_count
+                FROM update_batches b
+                LEFT JOIN product_snapshots p
+                    ON p.batch_id = b.id
+                GROUP BY b.id
+                ORDER BY b.effective_date DESC, b.id DESC
+                """
+            ).fetchall()
+
+        return [dict(row) for row in rows]
+

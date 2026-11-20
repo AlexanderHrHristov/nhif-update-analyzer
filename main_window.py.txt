@@ -1,0 +1,524 @@
+import customtkinter as ctk
+from tkinter import filedialog
+from datetime import date
+
+from app.core.diff_engine import DiffEngine
+from app.database.repository import ProductRepository
+
+import zipfile
+from pathlib import Path
+from tkinter import messagebox
+from app.core.zip_importer import ZIPImporter
+
+from app.core.change_builder import build_change_rows
+from app.ui.changes_table import ChangesTable
+
+class MainWindow(ctk.CTk):
+
+    def __init__(self):
+        super().__init__()
+
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("blue")
+
+        self.title("NHIF Update Analyzer")
+        self.geometry("1100x750")
+        self.minsize(900, 650)
+
+        self.repository = ProductRepository()
+        self.engine = DiffEngine()
+
+        self.build_ui()
+        self.load_dashboard()
+        
+        
+
+    def build_ui(self):
+        self.container = ctk.CTkScrollableFrame(
+            self,
+            fg_color="transparent"
+        )
+        self.container.pack(
+            fill="both",
+            expand=True,
+            padx=25,
+            pady=20
+        )
+
+        # Заглавие
+        header = ctk.CTkFrame(
+            self.container,
+            fg_color="transparent"
+        )
+        header.pack(fill="x")
+
+        ctk.CTkLabel(
+            header,
+            text="НЗОК",
+            font=ctk.CTkFont(size=27, weight="bold")
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            header,
+            text="Import ZIP",
+            width=140,
+            height=40,
+            command=self.select_zip
+        ).pack(side="right")
+
+        self.subtitle = ctk.CTkLabel(
+            self.container,
+            text="Анализатор на актуализации",
+            text_color="gray"
+        )
+        self.subtitle.pack(anchor="w", pady=(5, 25))
+
+        # Информация за сравнението
+        self.comparison_label = ctk.CTkLabel(
+            self.container,
+            text="Зареждане...",
+            font=ctk.CTkFont(size=17, weight="bold")
+        )
+        self.comparison_label.pack(anchor="w", pady=(0, 15))
+
+        
+        # Избор на актуализации за сравнение
+        self.compare_frame = ctk.CTkFrame(
+            self.container
+        )
+        self.compare_frame.pack(
+            fill="x",
+            pady=(0, 20)
+        )
+
+        ctk.CTkLabel(
+            self.compare_frame,
+            text="Предходна актуализация"
+        ).grid(
+            row=0, column=0,
+            padx=15, pady=(15, 5)
+        )
+
+        ctk.CTkLabel(
+            self.compare_frame,
+            text="Нова актуализация"
+        ).grid(
+            row=0, column=1,
+            padx=15, pady=(15, 5)
+        )
+
+        self.old_date_menu = ctk.CTkOptionMenu(
+            self.compare_frame,
+            values=["Зареждане..."],
+            width=220
+        )
+        self.old_date_menu.grid(
+            row=1, column=0,
+            padx=15, pady=(0, 15)
+        )
+
+        self.new_date_menu = ctk.CTkOptionMenu(
+            self.compare_frame,
+            values=["Зареждане..."],
+            width=220
+        )
+        self.new_date_menu.grid(
+            row=1, column=1,
+            padx=15, pady=(0, 15)
+        )
+
+        self.compare_frame.grid_columnconfigure(
+            0, weight=1
+        )
+        self.compare_frame.grid_columnconfigure(
+            1, weight=1
+        )     
+        
+        
+        self.compare_button = ctk.CTkButton(
+            self.compare_frame,
+            text="Сравни актуализациите",
+            height=38,
+            command=self.compare_selected_dates
+        )
+        self.compare_button.grid(
+            row=2,
+            column=0,
+            columnspan=2,
+            padx=15,
+            pady=(0, 15),
+            sticky="ew"
+        )
+       
+        
+        # KPI карти
+        self.kpi_frame = ctk.CTkFrame(
+            self.container,
+            fg_color="transparent"
+        )
+        self.kpi_frame.pack(fill="x", pady=(0, 25))
+
+        for column in range(3):
+            self.kpi_frame.grid_columnconfigure(
+                column, weight=1
+            )
+
+        self.kpi_labels = {}
+
+        metrics = [
+            ("new", "Нови продукти"),
+            ("removed", "Отпаднали"),
+            ("financial", "Финансови промени"),
+            ("other", "Други промени"),
+            ("pending", "Преходен флаг"),
+            ("total", "Общо продукти"),
+        ]
+
+        for index, (key, title) in enumerate(metrics):
+            card = ctk.CTkFrame(self.kpi_frame)
+            card.grid(
+                row=index // 3,
+                column=index % 3,
+                padx=6,
+                pady=6,
+                sticky="nsew"
+            )
+
+            ctk.CTkLabel(
+                card,
+                text=title,
+                text_color="gray",
+                font=ctk.CTkFont(size=13)
+            ).pack(pady=(15, 5))
+
+            value_label = ctk.CTkLabel(
+                card,
+                text="—",
+                font=ctk.CTkFont(
+                    size=30,
+                    weight="bold"
+                )
+            )
+            value_label.pack(pady=(0, 15))
+
+            self.kpi_labels[key] = value_label
+
+        # История
+        ctk.CTkLabel(
+            self.container,
+            text="История на актуализациите",
+            font=ctk.CTkFont(size=19, weight="bold")
+        ).pack(anchor="w", pady=(10, 10))
+
+        self.history_frame = ctk.CTkFrame(
+            self.container
+        )
+        self.history_frame.pack(fill="x")
+        
+        
+        # Таблица с променените продукти
+        ctk.CTkLabel(
+            self.container,
+            text="Промени в лекарствените продукти",
+            font=ctk.CTkFont(
+                size=19,
+                weight="bold"
+            )
+        ).pack(
+            anchor="w",
+            pady=(25, 10)
+        )
+
+        self.changes_table = ChangesTable(
+            self.container
+        )
+        self.changes_table.pack(
+            fill="both",
+            expand=True,
+            pady=(0, 20)
+        )
+
+        self.changes_table.configure(height=400)
+
+        
+
+        # Съобщения
+        self.status_label = ctk.CTkLabel(
+            self.container,
+            text="",
+            text_color="gray"
+        )
+        self.status_label.pack(anchor="w", pady=15)
+
+    def load_dashboard(self):
+        history = self.repository.get_update_history()
+        
+        # Зареждаме датите в падащите менюта
+        dates = [
+            date.fromisoformat(
+                batch["effective_date"]
+            ).strftime("%d.%m.%Y")
+            for batch in history
+        ]
+
+        if dates:
+            self.old_date_menu.configure(values=dates)
+            self.new_date_menu.configure(values=dates)
+
+            self.new_date_menu.set(dates[0])
+
+            if len(dates) >= 2:
+                self.old_date_menu.set(dates[1])
+            else:
+                self.old_date_menu.set(dates[0])
+
+
+        # Изчистваме старите редове
+        for widget in self.history_frame.winfo_children():
+            widget.destroy()
+
+        if not history:
+            self.comparison_label.configure(
+                text="Няма импортирани актуализации"
+            )
+            return
+
+        # История
+        for batch in history:
+            row = ctk.CTkFrame(
+                self.history_frame,
+                fg_color="transparent"
+            )
+            row.pack(fill="x", padx=15, pady=8)
+
+            display_date = date.fromisoformat(
+                batch["effective_date"]
+            ).strftime("%d.%m.%Y")
+
+            ctk.CTkLabel(
+                row,
+                text=display_date,
+                width=150,
+                anchor="w"
+            ).pack(side="left")
+
+            ctk.CTkLabel(
+                row,
+                text=f'{batch["product_count"]} продукта',
+                anchor="e"
+            ).pack(side="right")
+
+        # Последните две актуализации
+        latest = history[0]
+
+        self.kpi_labels["total"].configure(
+            text=str(latest["product_count"])
+        )
+
+        if len(history) < 2:
+            self.comparison_label.configure(
+                text="Няма предходна актуализация за сравнение"
+            )
+            return
+
+        previous = history[1]
+
+        old_products = self.repository.get_products(
+            previous["id"]
+        )
+        new_products = self.repository.get_products(
+            latest["id"]
+        )
+
+        result = self.engine.compare(
+            old_products,
+            new_products
+        )
+        
+        
+        change_rows = build_change_rows(
+            old_products,
+            new_products
+        )
+
+        self.changes_table.load_rows(change_rows)
+        self.current_change_rows = change_rows
+
+
+        old_date = date.fromisoformat(
+            previous["effective_date"]
+        ).strftime("%d.%m.%Y")
+
+        new_date = date.fromisoformat(
+            latest["effective_date"]
+        ).strftime("%d.%m.%Y")
+
+        self.comparison_label.configure(
+            text=f"Последно сравнение: {old_date} → {new_date}"
+        )
+
+        values = {
+            "new": len(result.new_products),
+            "removed": len(result.removed_products),
+            "financial": len(result.financial_changes),
+            "other": len(result.other_changes),
+            "pending": len(result.pending_removal),
+        }
+
+        for key, value in values.items():
+            self.kpi_labels[key].configure(
+                text=str(value)
+            )
+
+    
+    def select_zip(self):
+        file_path = filedialog.askopenfilename(
+            title="Избери актуализация на НЗОК",
+            filetypes=[("ZIP archives", "*.zip")]
+        )
+
+        if not file_path:
+            return
+
+        try:
+            importer = ZIPImporter()
+
+            effective_date = importer.detect_effective_date(
+                file_path
+            )
+
+            batch_id, count = importer.import_zip(
+                zip_path=file_path,
+                effective_date=effective_date
+            )
+
+            self.load_dashboard()
+
+            self.status_label.configure(
+                text=(
+                    f"Импортиран: {Path(file_path).name} | "
+                    f"Дата: {effective_date:%d.%m.%Y} | "
+                    f"Продукти: {count}"
+                )
+            )
+
+            messagebox.showinfo(
+                "Успешен импорт",
+                f"Импортирани {count} продукта.\n"
+                f"Дата: {effective_date:%d.%m.%Y}\n"
+                f"Batch ID: {batch_id}"
+            )
+
+        
+        except ValueError as exc:
+            message = str(exc)
+
+            if "вече е импортиран" in message:
+                messagebox.showinfo(
+                    "Вече съществува",
+                    message
+                )
+            else:
+                messagebox.showerror(
+                    "Грешка при импортиране",
+                    message
+                )
+
+        except (
+            FileNotFoundError,
+            zipfile.BadZipFile
+        ) as exc:
+            messagebox.showerror(
+                "Невалиден архив",
+                str(exc)
+            )
+
+
+    
+    def compare_selected_dates(self):
+        """Сравнява двете избрани актуализации."""
+
+        # 1. Взимаме избраните дати
+        old_date_text = self.old_date_menu.get()
+        new_date_text = self.new_date_menu.get()
+
+        # 2. Преобразуваме датите към ISO формат
+        old_date = date.fromisoformat(
+            "-".join(reversed(old_date_text.split(".")))
+        )
+        new_date = date.fromisoformat(
+            "-".join(reversed(new_date_text.split(".")))
+        )
+
+        # 3. Проверяваме последователността
+        if old_date >= new_date:
+            messagebox.showwarning(
+                "Невалидни дати",
+                "Предходната актуализация трябва "
+                "да бъде по-стара от новата."
+            )
+            return
+
+        # 4. Намираме актуализациите в базата
+        old_batch = self.repository.get_batch_by_date(
+            old_date
+        )
+        new_batch = self.repository.get_batch_by_date(
+            new_date
+        )
+
+        if not old_batch or not new_batch:
+            messagebox.showerror(
+                "Липсваща актуализация",
+                "Една от избраните актуализации липсва."
+            )
+            return
+
+        # 5. Зареждаме продуктите
+        old_products = self.repository.get_products(
+            old_batch["id"]
+        )
+        new_products = self.repository.get_products(
+            new_batch["id"]
+        )
+
+        # 6. Изчисляваме промените
+        result = self.engine.compare(
+            old_products,
+            new_products
+        )
+
+        # 7. Подготвяме редовете за таблицата
+        change_rows = build_change_rows(
+            old_products,
+            new_products
+        )
+
+        # 8. Обновяваме таблицата
+        self.changes_table.load_rows(change_rows)
+
+        # Запазваме данните за Excel export
+        self.current_change_rows = change_rows
+
+        # 9. Обновяваме KPI картите
+        values = {
+            "new": len(result.new_products),
+            "removed": len(result.removed_products),
+            "financial": len(result.financial_changes),
+            "other": len(result.other_changes),
+            "pending": len(result.pending_removal),
+            "total": len(new_products),
+        }
+
+        for key, value in values.items():
+            self.kpi_labels[key].configure(
+                text=str(value)
+            )
+
+        # 10. Обновяваме заглавието на сравнението
+        self.comparison_label.configure(
+            text=(
+                f"Сравнение: {old_date_text} → "
+                f"{new_date_text}"
+            )
+        )

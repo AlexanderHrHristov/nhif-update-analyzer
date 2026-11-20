@@ -1,15 +1,39 @@
-﻿.venv/
-venv/
+﻿
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
 
-.idea/
-.vscode/
+# Local databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite3
 
-data/*.db
-data/*.sqlite3
-updates/*.zip
+# NHIF input files
+updates/
+*.NDU
+*.ndu
+*.zip
 
-dist/
+# Generated exports
+exports/
+*.xlsx
+
+# PyInstaller
 build/
+dist/
 *.spec
+
+# Environment and IDE
+.env
+.env.*
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
