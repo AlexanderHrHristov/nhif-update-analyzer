@@ -1,17 +1,34 @@
 
+import os
 import sqlite3
 from pathlib import Path
 
 
-DB_PATH = Path("data/nhif_analyzer.db")
+APP_NAME = "NHIFUpdateAnalyzer"
+
+
+def get_database_path():
+    """Връща постоянен път до потребителската SQLite база."""
+
+    local_app_data = os.environ.get("LOCALAPPDATA")
+
+    if local_app_data:
+        base_dir = Path(local_app_data)
+    else:
+        base_dir = Path.home() / "AppData" / "Local"
+
+    database_dir = base_dir / APP_NAME
+    database_dir.mkdir(parents=True, exist_ok=True)
+
+    return database_dir / "nhif_analyzer.db"
+
+
+DB_PATH = get_database_path()
 
 
 def get_connection():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-
     connection = sqlite3.connect(DB_PATH)
     connection.execute("PRAGMA foreign_keys = ON")
-
     return connection
 
 
@@ -71,4 +88,4 @@ def initialize_database():
             ON product_snapshots(nhif_code)
         """)
 
-    print("Database initialized successfully!")
+    print(f"Database initialized: {DB_PATH}")
